@@ -1,0 +1,25 @@
+services:
+  mysql:
+    image: mysql:latest
+    restart: always
+    env_file: .env
+    volumes:
+      - ./container_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "0.0.0.0"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  tg_bot:
+    build: .
+    restart: always
+    volumes:
+      - .:/usr/src/app
+      - /var/lib/marzban/db.sqlite3:/usr/src/app/db/marzban_db.sqlite3
+
+    depends_on: 
+      mysql:
+        condition: service_healthy
+    env_file:
+      - .env

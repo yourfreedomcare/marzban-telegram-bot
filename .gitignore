@@ -1,0 +1,15 @@
+# Ignore Python bytecode files
+__pycache__/
+
+# Ignore .env files
+*.env
+
+# Igore DS Store
+
+.DS_Store
+
+# unnesessery files
+container_data*/
+docker-compose.yml
+*test.py
+*.logs
