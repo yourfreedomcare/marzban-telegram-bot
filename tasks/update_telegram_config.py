@@ -26,9 +26,7 @@ def get_access_token():
     response = requests.post(url, data=data)
     if response.status_code == 200:
         ACCESS_TOKEN = response.json().get("access_token")
-        print("✅ Token Acquired")
         return ACCESS_TOKEN
-    print(f"❌ Token Error: {response.text}")
     return None
 
 def fetch_marzban_users():
@@ -44,11 +42,9 @@ def fetch_marzban_users():
     if response.status_code == 200:
         return response.json()["users"]
     elif response.status_code == 401:
-        print("🔄 Token expired, retrying...")
         ACCESS_TOKEN = get_access_token()
         return fetch_marzban_users()
     else:
-        print(f"❌ API Error: {response.text}")
         return None
 
 def fetch_marzban_hosts():
@@ -62,7 +58,6 @@ def fetch_marzban_hosts():
 def update_telegram_config():
     users = fetch_marzban_users()
     if not users:
-        print("⚠️ No users found.")
         return
 
     session = Session()
@@ -78,7 +73,6 @@ def update_telegram_config():
             ).scalar()
 
             if not user_exists:
-                print(f"⚠️ Skipping {telegram_id} (not found in telegram_users)")
                 continue
 
             session.execute(
@@ -102,10 +96,8 @@ def update_telegram_config():
                 )
 
         session.commit()
-        print(f"✅ Updated Telegram config for {len(users)} users")
     except Exception as e:
         session.rollback()
-        print(f"❌ DB Update Error: {e}")
     finally:
         session.close()
 

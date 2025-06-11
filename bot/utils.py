@@ -116,7 +116,6 @@ def prepare_links_dictionary_rework(configurations):
     # Iterate through the configurations and extract the desired data
     for config in configurations: 
         spx_value = re.search(r'sid=#([^&]+)', config.vless_link).group(1)
-        print(spx_value)
 
         try:
             idx1 = spx_value.index(start_idx)
@@ -128,7 +127,6 @@ def prepare_links_dictionary_rework(configurations):
 
         parsed_data_dict[decoded_title] = config.vless_link
 
-    print("parsed_data_dict", parsed_data_dict)
     return parsed_data_dict
 
 def refresh_configs():
@@ -136,5 +134,4 @@ def refresh_configs():
     UserRepository.refresh_configs(access_token)
 
 def retrieve_username(user):
-    print("retrieve_username: ", user) 
     return str(user.id)

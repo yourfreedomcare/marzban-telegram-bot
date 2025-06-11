@@ -21,8 +21,6 @@ class MarzbanService():
 
     @staticmethod
     def get_marzaban_user(telegram_user_id, access_token): 
-        print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        print("GETTING MARZBAN USER")
         api_response, status_code = MarzbanApiFacade.get_user(telegram_user_id, access_token)
 
         return [api_response, status_code]

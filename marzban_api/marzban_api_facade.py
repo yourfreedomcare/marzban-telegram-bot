@@ -19,7 +19,6 @@ class MarzbanApiFacade():
                 'password': os.getenv("MARZBAN_ADMIN_PASSWORD"),
                 'grant_type': 'password'
             }
-            print("URL", url)
             response = requests.post(url, data=data)
             return response.json()['access_token']
         except Exception: 
@@ -28,7 +27,6 @@ class MarzbanApiFacade():
     @staticmethod
     def get_user(telegram_user_id , access_token):
         try:
-            print("telegram_user_id", telegram_user_id)
             url = f'{os.getenv("MARZBAN_API_HOST")}/api/user/{telegram_user_id}'
             headers = {
                 'Authorization': f'Bearer {access_token}'
