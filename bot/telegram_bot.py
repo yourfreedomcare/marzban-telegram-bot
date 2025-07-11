@@ -3,7 +3,7 @@ File includes the main Telegram bot class
 with all the availabe message callbacks and query callbacks 
 '''
 
-from telebot import TeleBot
+from telebot import TeleBot, types # Import 'types' for InlineKeyboardMarkup and InlineKeyboardButton
 from logger import logger
 from .utils import *
 from database.user import UserRepository
@@ -11,14 +11,29 @@ from marzban_api.marzban_service import MarzbanService
 import os
 import time
 
+# --- Constants for Stars Amounts ---
+# These are the amounts in Stars (XTR currency)
+STAR_AMOUNTS = {
+    "select_stars_amount_1": 1,
+    "select_stars_amount_100": 100,
+    "select_stars_amount_500": 500,
+    "select_stars_amount_1000": 1000,
+    "select_stars_amount_5000": 5000,
+}
+
+# --- Callback data prefixes ---
+CALLBACK_DONATE_STARS_INITIAL = "donate_tgstars" # Existing callback for the initial 'TG Stars' button
+CALLBACK_SELECT_STARS_AMOUNT_PREFIX = "select_stars_amount_"
 
 
 class TelegramBot():
+    print("+++TELEGRAM BOT+++")
     bot = TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
     admin_users = os.getenv('ADMIN_USERS').split(',')
     admin_user_broadcasts = set()
 
     def check_if_needs_update(func):
+        print("Execuitng check_if_needs_update")
         def inner(obj): 
             try:
                 user, _ =  UserRepository.get_user(retrieve_username(obj.from_user))
@@ -226,7 +241,8 @@ class TelegramBot():
     def handle_donate(message):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("💰 Crypto", callback_data='donate_crypto'))
-        keyboard.add(types.InlineKeyboardButton("⭐ TG Stars", callback_data='donate_tgstars'))
+        # Using the defined constant for clarity
+        keyboard.add(types.InlineKeyboardButton("⭐ TG Stars", callback_data=CALLBACK_DONATE_STARS_INITIAL))
         TelegramBot.bot.send_message(message.chat.id, "Choose donation option:", reply_markup=keyboard)
 
     @bot.callback_query_handler(func=lambda call: call.data == 'donate_crypto')
@@ -253,13 +269,133 @@ class TelegramBot():
         else:
             TelegramBot.bot.send_message(call.message.chat.id, "❌ Address not configured. Please contact support.")
 
-    @bot.callback_query_handler(func=lambda call: call.data == 'donate_tgstars')
-    def handle_donate_tgstars(call):
-        TelegramBot.bot.send_message(
-            call.message.chat.id,
-            "You chose ⭐ *TG Stars*.\nPlease send stars via Telegram premium gifting.",
-            parse_mode='Markdown'
-        )
+    # --- NEW STARS FUNCTIONALITY ---
+
+    @bot.callback_query_handler(func=lambda call: call.data == CALLBACK_DONATE_STARS_INITIAL)
+    def handle_donate_tgstars_initial(call):
+        """
+        Handles the initial 'TG Stars' button click, presenting amount options.
+        """
+        try:
+            TelegramBot.bot.answer_callback_query(call.id) # Always answer the callback query
+
+            keyboard = types.InlineKeyboardMarkup()
+            # Create buttons for each star amount
+            for key, amount in STAR_AMOUNTS.items():
+                keyboard.add(types.InlineKeyboardButton(f"{amount} Stars", callback_data=key))
+
+            TelegramBot.bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Please select the amount of Stars you'd like to donate:",
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            logger.error(f"Exception in handle_donate_tgstars_initial: {e}", exc_info=True)
+            TelegramBot.bot.send_message(call.message.chat.id, messages_content['unexpected_error'])
+
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith(CALLBACK_SELECT_STARS_AMOUNT_PREFIX))
+    def handle_select_stars_amount(call):
+        """
+        Handles the selection of a specific Stars amount and generates an invoice.
+        """
+        try:
+            TelegramBot.bot.answer_callback_query(call.id) # Answer the callback query
+
+            amount_str = call.data.replace(CALLBACK_SELECT_STARS_AMOUNT_PREFIX, "")
+            try:
+                amount = int(amount_str)
+            except ValueError:
+                TelegramBot.bot.send_message(call.message.chat.id, "Invalid amount selected. Please try again.")
+                return
+
+            if amount not in STAR_AMOUNTS.values():
+                TelegramBot.bot.send_message(call.message.chat.id, "Invalid amount. Please choose from the given options.")
+                return
+
+            invoice_payload = f"stars_donation_{amount}_{call.from_user.id}_{int(time.time())}"
+            prices = [types.LabeledPrice(label=f"Donation of {amount} Stars", amount=amount)]
+
+            TelegramBot.bot.send_invoice(
+                chat_id=call.message.chat.id,
+                title=f"Donate {amount} Stars",
+                description=f"Thank you for your generous donation of {amount} Telegram Stars!",
+                invoice_payload=invoice_payload,
+                provider_token="",
+                currency="XTR",
+                prices=prices,
+                start_parameter="stars_donation",
+                need_shipping_address=False,
+                is_flexible=False
+            )
+            TelegramBot.bot.send_message(
+                call.message.chat.id,
+                text=f"Initiated donation for {amount} Stars. Please confirm the payment above."
+            )
+
+        except Exception as e:
+            logger.error(f"Exception in handle_select_stars_amount: {e}", exc_info=True)
+            TelegramBot.bot.send_message(call.message.chat.id, messages_content['unexpected_error'])
+
+    @bot.pre_checkout_query_handler(func=lambda query: True)
+    def pre_checkout_callback(pre_checkout_query):
+        """
+        Handles pre-checkout queries sent by Telegram before a payment is finalized.
+        You MUST respond to this query.
+        """
+        try:
+            # Here you can perform last-minute checks on the payment
+            # For example, verify the invoice_payload to ensure it's a valid donation
+            if pre_checkout_query.invoice_payload.startswith("stars_donation_"):
+                TelegramBot.bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+                logger.info(f"Pre-checkout query approved for user {pre_checkout_query.from_user.id} with payload {pre_checkout_query.invoice_payload}")
+            else:
+                # If the payload doesn't match our expected format, reject it
+                TelegramBot.bot.answer_pre_checkout_query(
+                    pre_checkout_query.id,
+                    ok=False,
+                    error_message="Something went wrong with your donation. Please try again."
+                )
+                logger.warning(f"Pre-checkout query rejected for unknown payload: {pre_checkout_query.invoice_payload}")
+        except Exception as e:
+            logger.error(f"Exception in pre_checkout_callback: {e}", exc_info=True)
+            # In case of an unexpected error, it's safer to reject the payment
+            TelegramBot.bot.answer_pre_checkout_query(
+                pre_checkout_query.id,
+                ok=False,
+                error_message="An internal error occurred while processing your payment. Please try again later."
+            )
+
+
+    @bot.message_handler(content_types=['successful_payment'])
+    def successful_payment_callback(message):
+        """
+        Handles successful payment messages. This is where you confirm the donation
+        and update your records.
+        """
+        try:
+            payment_info = message.successful_payment
+            amount_paid_stars = payment_info.total_amount
+            invoice_payload = payment_info.invoice_payload
+            telegram_payment_charge_id = payment_info.telegram_payment_charge_id
+
+            user_id = message.from_user.id
+            username = retrieve_username(message.from_user) # Using your utility function
+
+            logger.info(f"User {username} ({user_id}) successfully donated {amount_paid_stars} Stars.")
+            logger.info(f"Invoice Payload: {invoice_payload}")
+            logger.info(f"Telegram Charge ID: {telegram_payment_charge_id}")
+
+            TelegramBot.bot.send_message(
+                message.chat.id,
+                f"🎉 Thank you, for your generous donation of {amount_paid_stars} Stars! "
+                "Your support is greatly appreciated!"
+            )
+        except Exception as e:
+            logger.error(f"Exception in successful_payment_callback: {e}", exc_info=True)
+            TelegramBot.bot.send_message(message.chat.id, messages_content['unexpected_error'])
+
 
     # Default fallback for any unrecognized message 
     @bot.message_handler(func=lambda message: True)
@@ -267,14 +403,14 @@ class TelegramBot():
     def default_message(message):
         telegram_user_id = retrieve_username(message.from_user)
         if telegram_user_id in TelegramBot.admin_users and telegram_user_id in TelegramBot.admin_user_broadcasts:
-            users = UserRepository.get_users()
+            users = UserRepository.get_users() # Assuming this retrieves all users for broadcasting
             for user in users:
                 try:
                     logger.info(f"chat_id: {user.chat_id}  is_updated: {user.is_updated}")
                     TelegramBot.bot.send_message(user.chat_id, message.text)
                     logger.info(f"Done {user.chat_id}")
-                except:
-                    logger.error(f'Exception ->{user.chat_id}', exc_info=True)
+                except Exception: # Catch specific exceptions like ApiTelegramException if possible
+                    logger.error(f'Exception -> Failed to send broadcast to {user.chat_id}', exc_info=True)
                     continue
             TelegramBot.admin_user_broadcasts.discard(telegram_user_id)
         else:
@@ -288,4 +424,4 @@ class TelegramBot():
             except Exception as e:
                 logger.error("Bot crashed with exception:", exc_info=True)
                 logger.info("Restarting bot polling in 10 seconds...")
-                time.sleep(10) 
+                time.sleep(10)
